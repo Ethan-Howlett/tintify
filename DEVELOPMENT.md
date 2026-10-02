@@ -4,6 +4,77 @@ Notes for maintainers. Users of the library should read [README.md](README.md).
 
 All commands are run from the project root and use [uv](https://docs.astral.sh/uv/).
 
+## Quick reference
+
+```sh
+uv run pytest                 # run the tests
+scripts/check.sh              # every pre-release check (tests, build, validation)
+scripts/release.sh patch      # release a new version (or: minor, major, X.Y.Z)
+```
+
+`scripts/release.sh` (on your machine):
+
+1. Checks that you're on `main` with no uncommitted changes and in sync with GitHub.
+2. Bumps the version in `pyproject.toml`.
+3. Runs `scripts/check.sh`.
+4. Asks, then commits `Release vX.Y.Z`, tags it `vX.Y.Z`, and pushes both.
+5. Optionally shows the GitHub workflow's progress in your terminal (`gh run watch`).
+
+If anything fails or you answer "no", the version bump is undone and nothing is
+committed. Commit your code changes **before** running it. The release commit
+should only contain the version bump.
+
+Pushing the tag starts **`.github/workflows/release.yml`** on GitHub:
+
+```
+build + check -> TestPyPI -> install from TestPyPI -> PyPI -> GitHub Release
+```
+
+Each step only runs if the one before it succeeded. If you set up a required
+reviewer (see below), GitHub waits for you to click **Approve** before the PyPI
+step. The GitHub Release has auto-generated notes and the built files attached.
+
+**`.github/workflows/ci.yml`** runs the tests on Python 3.9–3.14 (plus macOS
+and Windows) and `scripts/check.sh` on every push to `main` and every pull
+request.
+
+If a release fails after the tag is pushed, the tag and release commit are
+already on GitHub. Fix the problem and release the next version. If it failed
+before reaching TestPyPI, you can delete the tag and try again:
+`git push --delete origin vX.Y.Z && git tag -d vX.Y.Z`.
+
+### One-time setup: trusted publishing
+
+The workflow doesn't use API tokens. PyPI trusts uploads that come from this
+repo's release workflow, so there are no tokens to store or leak. Set it up
+once on each site.
+
+**1. TestPyPI:** go to <https://test.pypi.org/manage/project/tintify/settings/publishing/>
+and add a GitHub publisher:
+
+| Field             | Value           |
+|-------------------|-----------------|
+| Owner             | `Ethan-Howlett` |
+| Repository name   | `tintify`       |
+| Workflow name     | `release.yml`   |
+| Environment name  | `testpypi`      |
+
+**2. PyPI:** same thing at <https://pypi.org/manage/project/tintify/settings/publishing/>,
+but with environment name **`pypi`**.
+
+**3. GitHub environments:** in the repo, go to **Settings -> Environments** and
+create `testpypi` and `pypi`. On `pypi`, enable **Required reviewers** and add
+yourself. Every PyPI upload then waits for your approval on the workflow run
+page. This is optional but recommended.
+
+**4. Remove the old tokens.** Once a release has gone through, delete your API
+tokens at <https://pypi.org/manage/account/token/> and
+<https://test.pypi.org/manage/account/token/>, and remove the
+`export TEST_PYPI_TOKEN=...` line from `~/.zshrc`. Keep them only if you want
+to upload by hand (steps 6–7 below).
+
+The rest of this document explains each step and how to do it by hand.
+
 ## 1. Setup
 
 ```sh
@@ -58,27 +129,22 @@ tintify uses [semantic versioning](https://semver.org): `MAJOR.MINOR.PATCH`.
 Before 1.0, bump **minor** for new features or breaking changes and **patch**
 for bug fixes.
 
-> 0.1.0 is already on TestPyPI. Neither TestPyPI nor PyPI ever let you reuse a
-> version number, even after deleting it, so the next upload must be 0.2.0 or
-> higher.
+> Neither TestPyPI nor PyPI ever let you reuse a version number, even after
+> deleting it. If an upload is broken, release the next version instead.
 
-The version lives in **two** places. Update both:
+The version is set **only** in `pyproject.toml`. `tintify.__version__` reads
+it from the installed package.
 
 ```sh
-uv version --bump minor        # updates pyproject.toml (e.g. 0.1.0 -> 0.2.0)
+uv version --bump minor        # e.g. 0.2.1 -> 0.3.0
 uv version                     # print it to confirm
 ```
 
-Then set the same value in `src/tintify/__init__.py` (`__version__ = "..."`).
-
 ### Pre-release checklist
 
-- [ ] `uv run pytest` passes
-- [ ] The Python 3.9 test run passes
+- [ ] `scripts/check.sh` passes
 - [ ] `README.md` matches the current API (it becomes the PyPI page)
-- [ ] Version bumped in `pyproject.toml` **and** `src/tintify/__init__.py`
-- [ ] Before the first PyPI release: a `LICENSE` file with the MIT text exists
-      (`pyproject.toml` says `license = "MIT"`, but the file isn't in the repo yet)
+- [ ] Version bumped in `pyproject.toml`
 - [ ] Optional but recommended: add `[project.urls]` (Homepage / Source /
       Issues) and `classifiers` to `pyproject.toml` so the PyPI page links back
       to the repo
@@ -124,6 +190,9 @@ uv run --isolated --no-project --with dist/*.whl -- python -c \
 ```
 
 ## 6. Publish to TestPyPI first
+
+> Normally the release workflow does steps 6–8. These are the manual steps,
+> for when you need to upload by hand.
 
 [TestPyPI](https://test.pypi.org) is a separate practice copy of PyPI. Upload
 there first to catch problems where it doesn't matter.
@@ -182,16 +251,14 @@ Once TestPyPI looks right:
 ## 8. After releasing
 
 ```sh
-git tag v0.2.0
-git push origin main --tags
+git tag -a v0.3.0 -m v0.3.0
+git push origin main v0.3.0
 ```
 
 Tagging each release makes it easy to see exactly what code shipped in each
 version.
 
-### Later: automate with GitHub Actions
-
-Once the repo is on GitHub, you can set up
-[trusted publishing](https://docs.pypi.org/trusted-publishers/) so a GitHub
-Actions workflow publishes on each tag. That removes the need to store API
-tokens. `uv publish` supports it with no token when it runs in Actions.
+> **Heads up:** pushing a `v*` tag starts the release workflow. After a manual
+> upload, the workflow fails at the TestPyPI step because that version already
+> exists there. That's harmless: nothing gets uploaded twice. You can cancel
+> the run on the Actions tab.

@@ -1,0 +1,125 @@
+# Publish a release when a version tag (e.g. v0.3.0) is pushed.
+# Normally triggered by scripts/release.sh.
+#
+#   build -> TestPyPI -> install from TestPyPI -> PyPI -> GitHub Release
+#
+# Uploads use PyPI "trusted publishing", so no API tokens are stored anywhere.
+# See DEVELOPMENT.md for the one-time setup on PyPI, TestPyPI, and GitHub.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and check
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10
+
+      - name: Check the tag matches pyproject.toml
+        id: version
+        run: |
+          version="$(uv version --short)"
+          if [[ "v$version" != "$GITHUB_REF_NAME" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match the version in pyproject.toml (v$version)."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - run: scripts/check.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  testpypi:
+    name: Publish to TestPyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/tintify/${{ needs.build.outputs.version }}/
+    permissions:
+      id-token: write  # for trusted publishing
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  verify-testpypi:
+    name: Install from TestPyPI
+    needs: [build, testpypi]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: astral-sh/setup-uv@v10
+      - name: Install and import (retries while TestPyPI updates)
+        run: |
+          for attempt in $(seq 1 20); do
+            if uv run --isolated --no-project --refresh-package tintify \
+                --default-index https://test.pypi.org/simple/ \
+                --with "tintify==$VERSION" -- python -c "
+          import sys, tintify
+          assert tintify.__version__ == sys.argv[1], tintify.__version__
+          print(tintify.tint(f'Installed tintify {tintify.__version__} from TestPyPI', 'green', force=True))
+          " "$VERSION"; then
+              exit 0
+            fi
+            echo "Not available yet (attempt $attempt/20). Waiting 30s..."
+            sleep 30
+          done
+          echo "::error::Couldn't install tintify==$VERSION from TestPyPI."
+          exit 1
+
+  pypi:
+    name: Publish to PyPI
+    needs: [build, verify-testpypi]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi  # add a required reviewer to this environment to approve each release
+      url: https://pypi.org/project/tintify/${{ needs.build.outputs.version }}/
+    permissions:
+      id-token: write  # for trusted publishing
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    name: Create GitHub Release
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - name: Create release with the built files attached
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
