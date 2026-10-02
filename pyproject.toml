@@ -1,0 +1,21 @@
+[project]
+name = "tintify"
+version = "0.2.1"
+description = "Easy to use terminal text colorizer for Python."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Ethan Howlett", email = "ethanhowlett01@gmail.com" }
+]
+requires-python = ">=3.9"
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.9.8,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]
