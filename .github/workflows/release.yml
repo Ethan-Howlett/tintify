@@ -93,7 +93,7 @@ jobs:
     needs: [build, verify-testpypi]
     runs-on: ubuntu-latest
     environment:
-      name: pypi  # add a required reviewer to this environment to approve each release
+      name: pypi release  # must match the PyPI trusted publisher; add a required reviewer to this environment to approve each release
       url: https://pypi.org/project/tintify/${{ needs.build.outputs.version }}/
     permissions:
       id-token: write  # for trusted publishing

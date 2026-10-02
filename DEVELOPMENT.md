@@ -60,10 +60,10 @@ and add a GitHub publisher:
 | Environment name  | `testpypi`      |
 
 **2. PyPI:** same thing at <https://pypi.org/manage/project/tintify/settings/publishing/>,
-but with environment name **`pypi`**.
+but with environment name **`pypi release`**.
 
 **3. GitHub environments:** in the repo, go to **Settings -> Environments** and
-create `testpypi` and `pypi`. On `pypi`, enable **Required reviewers** and add
+create `testpypi` and `pypi release`. On `pypi release`, enable **Required reviewers** and add
 yourself. Every PyPI upload then waits for your approval on the workflow run
 page. This is optional but recommended.
 
