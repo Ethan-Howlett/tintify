@@ -1,6 +1,6 @@
 [project]
 name = "tintify"
-version = "0.2.1"
+version = "0.2.2"
 description = "Easy to use terminal text colorizer for Python."
 readme = "README.md"
 license = "MIT"
